@@ -1,0 +1,8 @@
+# to minimize the package dependency,
+# these packages are not included in setup.py
+# you need to install them by yourself if you want to use the built-in event handler
+
+# used for console, kafka
+pytz
+# used for kafka
+kafka-python

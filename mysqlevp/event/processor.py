@@ -16,6 +16,17 @@ class MysqlEventProcessor(object):
         self.dump_interval = dump_interval
         self.last_dump_time = time.time()
 
+        self.sleep_interval = 1
+
+    def reset_sleep_interval(self):
+        # on WriteRowEvent/UpdateRowEvent/DeleteRowEvent
+        self.sleep_interval = 1
+
+    def sleep_by_eof(self):
+        time.sleep(self.sleep_interval)
+        if self.sleep_interval < 16:
+            self.sleep_interval *= 2
+
     @classmethod
     def gen_ev_id(cls, log_file, log_pos):
         return '#'.join([log_file, str(log_pos)])
@@ -24,6 +35,7 @@ class MysqlEventProcessor(object):
         logger = get_logger()
         for new_log_file, new_log_pos, ev in self.ev_stream:
             # check if we need to process this event
+            # i.e. not filtered by table filters and is instance of RowsEvent
             need_process = True
             if self.ev_stream.table_filters and isinstance(ev, RowsEvent):
                 schema = ev.schema
@@ -34,6 +46,8 @@ class MysqlEventProcessor(object):
 
             if need_process:
                 ev_id = self.gen_ev_id(log_file=new_log_file, log_pos=new_log_pos)
+                self.reset_sleep_interval()
+
                 if isinstance(ev, WriteRowsEvent):
                     self.ev_handler.on_insert_raw(ev_id, ev)
                 elif isinstance(ev, UpdateRowsEvent):
@@ -54,3 +68,4 @@ class MysqlEventProcessor(object):
                 self.last_dump_time = now_time
 
         logger.debug('EOF packet received. The processor has proceeded to the last record of binlog.')
+        self.sleep_by_eof()

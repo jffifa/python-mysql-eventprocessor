@@ -6,7 +6,7 @@ from setuptools import setup, find_packages
 # requirements
 install_requires = [
     "six>=1.10.0",
-    "mysql-replication==0.7",
+    "mysql-replication==0.8",
 ]
 
 setup(name="mysql-eventprocessor",

@@ -7,9 +7,7 @@ from datetime import datetime
 from pytz import timezone
 from ..event.row_wrapper import InsertEventRow, UpdateEventRow, DeleteEventRow
 from ..utils.time import naive_dt2str
-from kafka import (
-    KafkaClient, KeyedProducer,
-    RoundRobinPartitioner,)
+from kafka import KafkaClient, SimpleProducer
 
 
 class MysqlEvKafkaHandler(IEventHandler):
@@ -24,25 +22,26 @@ class MysqlEvKafkaHandler(IEventHandler):
                       ["127.0.0.2:9092", "127.0.0.3:9092"]
         :param kafka_producer: if you want to control kafka producer more precisely,
                                you may give a kafka producer here,
-                               if not given, a sync keyed producer will be created with hosts param
-                               you are strongly RECOMMENDED to give an instance here,
-                               as the default producer uses sync mode with quite low performance
+                               if not given, a sync simple producer will be created with hosts param
+                               be CAUTIOUS about using async mode for kafka producer as
+                               the messages in its async sending queue may be LOST
+                               if signal SIGKILL received.
         :param topic: the kafka topic messages sent to,
                       a string or a function,
                       if a function given, the function must receive 2 params(schema, table) and return a string
         :param split_row: if set to True, handler will split affected rows into messages,
-                          each message contains only one row with key "<ev_id>#<row_index>"
+                          each message contains only one row with "msg_key":"<ev_id>#<row_index>"
                           otherwise, handler just send one message for one event containing all affected rows,
-                          each message has the key "<ev_id>"
+                          each message has the key "ev_id":"<ev_id>" with "affected_rows[]"
         """
         if kafka_producer:
             self.kafka_producer = kafka_producer
         elif isinstance(hosts, list):
             host_str = ','.join(hosts)
-            self.kafka_producer = KeyedProducer(
+            self.kafka_producer = SimpleProducer(
                 KafkaClient(host_str),
-                partitioner=RoundRobinPartitioner,
-                req_acks=KeyedProducer.ACK_AFTER_CLUSTER_COMMIT,
+                async=False,
+                req_acks=SimpleProducer.ACK_AFTER_CLUSTER_COMMIT,
                 ack_timeout=2000,
             )
         else:
@@ -59,26 +58,31 @@ class MysqlEvKafkaHandler(IEventHandler):
         self.dt_col_tz = timezone(dt_col_tz)
 
     @classmethod
-    def gen_key(cls, ev_id, row_index=None):
+    def gen_msg_key(cls, ev_id, row_index=None):
         if row_index:
             return six.b('#'.join([ev_id, str(row_index)]))
         else:
             return six.b(ev_id)
 
-    def to_dict(self, ev_id, ev_timestamp, schema, table, row):
+    def to_dict(self, ev_id, ev_timestamp, schema, table, row, msg_key=None):
         res = {
             'ev_id':ev_id,
             'ev_time':str(datetime.fromtimestamp(ev_timestamp, self.ev_tz)),
             'schema':schema,
             'table':table,
         }
+        if msg_key:
+            res['msg_key'] = msg_key
 
         if isinstance(row, InsertEventRow):
+            res['action'] = 'INSERT'
             res['new_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
         elif isinstance(row, UpdateEventRow):
+            res['action'] = 'UPDATE'
             res['old_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
             res['new_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
         elif isinstance(row, DeleteEventRow):
+            res['action'] = 'DELETE'
             res['old_values'] = naive_dt2str(row.old_values, self.dt_col_tz)
         else:
             raise NotImplementedError
@@ -88,15 +92,15 @@ class MysqlEvKafkaHandler(IEventHandler):
     def send_msgs(self, ev_id, ev_timestamp, schema, table, affected_rows):
         topic = six.b(self.static_topic or self.topic_func(schema=schema, table=table))
 
-        row_list = []
-        for row in affected_rows:
-            row_list.append(self.to_dict(ev_id, ev_timestamp, schema, table, row))
-
         if self.split_row:
-            for row_index, row in enumerate(row_list):
-                msg = six.b(json.dumps(row))
-                self.kafka_producer.send_messages(topic, self.gen_key(ev_id, row_index), msg)
+            msg_list = []
+            for row_index, row in enumerate(affected_rows):
+                msg = self.to_dict(ev_id, ev_timestamp, schema, table, row, self.gen_msg_key(ev_id, row_index))
+                msg_list.append(six.b(json.dumps(msg)))
+
+            self.kafka_producer.send_messages(topic, *msg_list)
         else:
+            row_list = [self.to_dict(ev_id, ev_timestamp, schema, table, row) for row in affected_rows]
             msg_dict = {
                 'ev_id':ev_id,
                 'ev_time':str(datetime.fromtimestamp(ev_timestamp, self.ev_tz)),
@@ -105,7 +109,7 @@ class MysqlEvKafkaHandler(IEventHandler):
                 'affected_rows':row_list,
             }
             msg = six.b(json.dumps(msg_dict))
-            self.kafka_producer.send_messages(topic, self.gen_key(ev_id), msg)
+            self.kafka_producer.send_messages(topic, self.gen_msg_key(ev_id), msg)
 
     def on_insert(self, ev_id, ev_timestamp, schema, table, affected_rows):
         self.send_msgs(ev_id, ev_timestamp, schema, table, affected_rows)

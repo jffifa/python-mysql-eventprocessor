@@ -28,11 +28,14 @@ class MysqlEvConsoleHandler(IEventHandler):
             'table':table,
         }
         if isinstance(row, InsertEventRow):
+            res['action'] = 'INSERT'
             res['new_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
         elif isinstance(row, UpdateEventRow):
+            res['action'] = 'UPDATE'
             res['old_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
             res['new_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
         elif isinstance(row, DeleteEventRow):
+            res['action'] = 'DELETE'
             res['old_values'] = naive_dt2str(row.old_values, self.dt_col_tz)
         else:
             raise NotImplementedError

@@ -10,9 +10,6 @@ from .handler.base import IEventHandler
 from .log import get_logger
 
 
-_g_event_processor = None
-
-
 class MysqlevpWrapper(object):
     def __init__(self,
                  mysql_conn_settings,
@@ -72,16 +69,16 @@ class MysqlevpWrapper(object):
         signal.signal(signal.SIGTERM, self.sig_handler)
         signal.signal(signal.SIGINT, self.sig_handler)
 
-    def elegant_exit(self, exit_code=0):
+    def close(self):
         self.event_processor.ev_stream.dumpf()
         self.event_processor.ev_stream.close()
         self.event_processor.ev_handler.close()
-        sys.exit(exit_code)
 
     def sig_handler(self, sig, frame):
         logger = get_logger()
         logger.warning('Signal SIGTERM/SIGINT received, exit.')
-        self.elegant_exit(sig+128)
+        self.close()
+        sys.exit(sig+128)
 
     def run(self):
         try:
@@ -93,4 +90,5 @@ class MysqlevpWrapper(object):
             logger = get_logger()
             tb = traceback.format_exc()
             logger.error('Exception caught with traceback info:\n'+tb)
-            self.elegant_exit(1)
+            self.close()
+            sys.exit(1)

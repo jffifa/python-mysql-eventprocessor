@@ -58,7 +58,6 @@ class MysqlEventStream(object):
         """dump currently read binlog file and offset to a file
         """
         data = {
-            'mysql_settings': self.mysql_settings,
             'server_id': self.server_id,
             'log_file':self.log_file,
             'log_pos':self.log_pos,
@@ -68,7 +67,7 @@ class MysqlEventStream(object):
             f.write(data_str)
 
     @classmethod
-    def loadf(cls, path, table_filters=None):
+    def loadf(cls, path, mysql_settings, table_filters=None):
         """construct from dump file
         """
         with io.open(path, 'r', encoding='utf-8') as f:
@@ -77,7 +76,7 @@ class MysqlEventStream(object):
         data = json.loads(data_str)
 
         ev_stream = cls(
-            mysql_settings=data['mysql_settings'],
+            mysql_settings=mysql_settings,
             server_id=data['server_id'],
             log_file=data['log_file'],
             log_pos=data['log_pos'],

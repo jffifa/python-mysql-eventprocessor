@@ -51,6 +51,7 @@ class MysqlevpWrapper(object):
         if os.path.exists(dump_file_path):
             event_stream = MysqlEventStream.loadf(
                     path=dump_file_path,
+                    mysql_settings=mysql_conn_settings,
                     table_filters=table_filters)
         else:
             event_stream = MysqlEventStream(

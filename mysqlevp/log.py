@@ -7,7 +7,7 @@ _logger = logging.getLogger('mysqlevp')
 _logger.setLevel(logging.INFO)
 
 _ch_handler = logging.StreamHandler()
-_ch_handler.setLevel(logging.INFO)
+_ch_handler.setLevel(logging.DEBUG)
 _ch_handler.setFormatter(logging.Formatter('%(levelname)s %(asctime)s %(message)s'))
 
 _logger.addHandler(_ch_handler)

@@ -6,7 +6,7 @@ from .base import IEventHandler
 from datetime import datetime
 from pytz import timezone
 from ..event.row_wrapper import InsertEventRow, UpdateEventRow, DeleteEventRow
-from ..utils.time import naive_dt2str
+from ..utils.json_encoder import make_json_encoder_default
 from kafka import KafkaClient, SimpleProducer
 
 
@@ -56,6 +56,7 @@ class MysqlEvKafkaHandler(IEventHandler):
         self.split_row = split_row
         self.ev_tz = timezone(ev_tz)
         self.dt_col_tz = timezone(dt_col_tz)
+        self.json_encoder_default = make_json_encoder_default(self.dt_col_tz)
 
     @classmethod
     def gen_msg_key(cls, ev_id, row_index=None):
@@ -76,14 +77,14 @@ class MysqlEvKafkaHandler(IEventHandler):
 
         if isinstance(row, InsertEventRow):
             res['action'] = 'INSERT'
-            res['new_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
+            res['new_values'] = row.new_values
         elif isinstance(row, UpdateEventRow):
             res['action'] = 'UPDATE'
-            res['old_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
-            res['new_values'] = naive_dt2str(row.new_values, self.dt_col_tz)
+            res['old_values'] = row.new_values
+            res['new_values'] = row.new_values
         elif isinstance(row, DeleteEventRow):
             res['action'] = 'DELETE'
-            res['old_values'] = naive_dt2str(row.old_values, self.dt_col_tz)
+            res['old_values'] = row.old_values
         else:
             raise NotImplementedError
 
@@ -96,7 +97,7 @@ class MysqlEvKafkaHandler(IEventHandler):
             msg_list = []
             for row_index, row in enumerate(affected_rows):
                 msg = self.to_dict(ev_id, ev_timestamp, schema, table, row, self.gen_msg_key(ev_id, row_index))
-                msg_list.append(six.b(json.dumps(msg)))
+                msg_list.append(six.b(json.dumps(msg, default=self.json_encoder_default)))
 
             self.kafka_producer.send_messages(topic, *msg_list)
         else:
@@ -108,7 +109,7 @@ class MysqlEvKafkaHandler(IEventHandler):
                 'table':table,
                 'affected_rows':row_list,
             }
-            msg = six.b(json.dumps(msg_dict))
+            msg = six.b(json.dumps(msg_dict, default=self.json_encoder_default))
             self.kafka_producer.send_messages(topic, self.gen_msg_key(ev_id), msg)
 
     def on_insert(self, ev_id, ev_timestamp, schema, table, affected_rows):

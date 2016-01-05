@@ -37,7 +37,9 @@ class MysqlEventProcessor(object):
             # check if we need to process this event
             # i.e. not filtered by table filters and is instance of RowsEvent
             need_process = True
-            if self.ev_stream.table_filters and isinstance(ev, RowsEvent):
+            if not isinstance(ev, RowsEvent):
+                need_process = False
+            elif self.ev_stream.table_filters:
                 schema = ev.schema
                 table = ev.table
                 if (schema not in self.ev_stream.table_filters) or (
